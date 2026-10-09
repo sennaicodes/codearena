@@ -60,20 +60,33 @@ function judge0Executor({ url, authToken, rapidApiKey, rapidApiHost, timeoutMs =
   }
 }
 
-// Runs code directly on this machine with node/python3. NOT a sandbox.
+// Runs code directly on this machine with node/python3/go. NOT a sandbox.
 // Only for validating the trusted reference solutions and local development.
 function localExecutor({ allowUntrusted = false } = {}) {
   if (!allowUntrusted && process.env.NODE_ENV === 'production') {
     throw new Error('The local executor is not a sandbox and cannot run in production')
   }
-  const commands = { javascript: 'node', python: 'python3' }
+  const commands = {
+    javascript: { command: 'node', ext: 'js' },
+    typescript: { command: 'node', ext: 'js' },
+    python: { command: 'python3', ext: 'py' },
+    go: { command: 'go', args: ['run'], ext: 'go' },
+  }
   return function execute({ language, source, stdin, timeLimitSeconds = 3 }) {
     return new Promise(resolve => {
       const started = Date.now()
+      const config = commands[language]
+      if (!config) {
+        return resolve({ status: 'unavailable', stdout: '', stderr: `Unsupported local language: ${language}`, timeMs: 0 })
+      }
       const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'codearena-run-'))
-      const file = path.join(dir, language === 'python' ? 'solution.py' : 'solution.js')
+      const file = path.join(dir, `solution.${config.ext}`)
       fs.writeFileSync(file, source)
-      const child = spawn(commands[language], [file], { stdio: ['pipe', 'pipe', 'pipe'] })
+      
+      const cmd = config.command
+      const args = config.args ? [...config.args, file] : [file]
+
+      const child = spawn(cmd, args, { stdio: ['pipe', 'pipe', 'pipe'] })
       let stdout = ''
       let stderr = ''
       let timedOut = false
@@ -86,7 +99,7 @@ function localExecutor({ allowUntrusted = false } = {}) {
         const timeMs = Date.now() - started
         if (timedOut) return resolve({ status: 'time_limit', stdout, stderr, timeMs })
         if (code !== 0) {
-          const syntax = /SyntaxError|IndentationError/.test(stderr)
+          const syntax = /SyntaxError|IndentationError|syntax error/i.test(stderr)
           return resolve({ status: syntax ? 'compile_error' : 'runtime_error', stdout, stderr, timeMs })
         }
         resolve({ status: 'ok', stdout, stderr, timeMs })
