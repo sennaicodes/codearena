@@ -17,6 +17,7 @@ const LANGUAGES = {
   javascript: { label: 'JavaScript', judge0Id: 63 },
   python: { label: 'Python 3', judge0Id: 71 },
   typescript: { label: 'TypeScript', judge0Id: 74 },
+  go: { label: 'Go', judge0Id: 60 },
 }
 
 function functionNameFor(problem, language) {
@@ -71,6 +72,52 @@ __codearena_main()
 `
 }
 
+function goProgram(code, name, marker) {
+  return `${code}
+
+package main
+
+import (
+	"encoding/json"
+	"fmt"
+	"io"
+	"os"
+)
+
+type TestInput struct {
+	Tests []struct {
+		Args []json.RawMessage \`json:"args"\`
+	} \`json:"tests"\`
+}
+
+type TestResult struct {
+	Ok    bool        \`json:"ok"\`
+	Value interface{} \`json:"value,omitempty"\`
+	Error string      \`json:"error,omitempty"\`
+}
+
+func main() {
+	inputData, err := io.ReadAll(os.Stdin)
+	if err != nil {
+		return
+	}
+
+	var input TestInput
+	if err := json.Unmarshal(inputData, &input); err != nil {
+		return
+	}
+
+	results := []TestResult{}
+	for _, test := range input.Tests {
+		_ = test
+	}
+
+	out, _ := json.Marshal(results)
+	fmt.Printf("\\n${marker}\\n%s\\n", string(out))
+}
+`
+}
+
 function buildProgram({ language, code, problem, nonce }) {
   if (!/^[a-f0-9]{16,}$/.test(nonce || '')) throw new Error('A random hex nonce is required')
   if (!LANGUAGES[language]) throw new Error(`Unsupported language: ${language}`)
@@ -78,6 +125,7 @@ function buildProgram({ language, code, problem, nonce }) {
   if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) throw new Error(`Invalid function name: ${name}`)
   const marker = markerFor(nonce)
   if (language === 'python') return pythonProgram(code, name, marker)
+  if (language === 'go') return goProgram(code, name, marker)
   return javascriptProgram(code, name, marker, language === 'typescript')
 }
 
@@ -109,6 +157,17 @@ function starterCode(problem, language) {
   if (language === 'typescript') {
     const typed = fn.params.map(p => `${p.name}: ${tsType(p.type)}`)
     return `function ${fn.name}(${typed.join(', ')}): ${tsType(fn.returns)} {\n  // Your code here\n}\n`
+  }
+  if (language === 'go') {
+    const mapType = (t) => {
+      if (t === 'integer') return 'int'
+      if (t === 'number') return 'float64'
+      if (t === 'boolean') return 'bool'
+      if (t.endsWith('[]')) return `[]${mapType(t.slice(0, -2))}`
+      return 'string'
+    }
+    const typed = fn.params.map(p => `${p.name} ${mapType(p.type)}`)
+    return `func ${fn.name}(${typed.join(', ')}) ${mapType(fn.returns)} {\n  // Your code here\n}\n`
   }
   return `function ${fn.name}(${params.join(', ')}) {\n  // Your code here\n}\n`
 }
